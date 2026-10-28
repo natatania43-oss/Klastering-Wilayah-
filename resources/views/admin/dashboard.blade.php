@@ -1,0 +1,430 @@
+@extends('layouts.admin')
+
+@section('title', 'Dashboard Admin Partisipasi Pemilih')
+
+@section('content')
+<style>
+    .dash-hero {
+        background: linear-gradient(135deg, #0d6efd 0%, #0a4fb8 100%);
+        color: #fff;
+        border-radius: 1rem;
+        padding: 1.5rem 1.75rem;
+    }
+    .dash-hero .sub { opacity: .85; }
+    .kpi-card, .panel {
+        border: 0;
+        border-radius: 1rem;
+        box-shadow: 0 2px 12px rgba(20, 30, 60, .06);
+    }
+    .kpi-card { height: 100%; }
+    .kpi-icon {
+        width: 46px; height: 46px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+    .kpi-label { font-size: .8rem; color: #6c757d; }
+    .kpi-value { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+    .panel-title { font-weight: 600; margin-bottom: .15rem; }
+    .panel-sub { font-size: .82rem; color: #6c757d; margin-bottom: 1rem; }
+    .insight-name { font-weight: 600; }
+    .insight-pct { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
+    .kec-bar { height: 6px; border-radius: 6px; background: #e9ecef; overflow: hidden; }
+    .kec-bar > div { height: 100%; border-radius: 6px; }
+    .table thead th {
+        font-size: .75rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #6c757d;
+        white-space: nowrap;
+    }
+    .table td { vertical-align: middle; }
+    .chart-box { position: relative; height: 320px; }
+    .empty-state { text-align: center; color: #6c757d; padding: 2rem 0; }
+</style>
+
+@php
+    $pct  = fn ($v) => ((float) $v) * 100;
+    $tone = function ($p) {
+        if ($p >= 70) return ['#198754', 'rgba(25,135,84,.12)'];
+        if ($p >= 50) return ['#c99700', 'rgba(255,193,7,.18)'];
+        return ['#dc3545', 'rgba(220,53,69,.12)'];
+    };
+    $badgeFor = function ($label) {
+        $l = strtolower((string) $label);
+        return match (true) {
+            str_contains($l, 'tinggi') => 'bg-success',
+            str_contains($l, 'sedang') => 'bg-warning text-dark',
+            str_contains($l, 'rendah') => 'bg-danger',
+            default => 'bg-primary',
+        };
+    };
+
+    // Klaster "Rendah" sudah tersimpan dan sudah dipakai TPS?
+    $klasterSiap = $clusterRendah && $wilayahPrioritas->every(
+        fn ($w) => $w->cluster == $clusterRendah->cluster_no
+    );
+@endphp
+
+{{-- Hero --}}
+<div class="dash-hero mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h4 class="mb-1 fw-bold">Dashboard Partisipasi Pemilih</h4>
+            <div class="sub">
+                Kota Banjarmasin · Pemilu 2024 · Hasil K-Means (k = {{ $clusters->count() }})
+            </div>
+        </div>
+        <div class="text-end">
+            <div class="sub small">Tingkat partisipasi keseluruhan</div>
+            <div class="fs-2 fw-bold">{{ number_format($pct($tingkatPartisipasi), 2) }}%</div>
+        </div>
+    </div>
+</div>
+
+
+{{-- KPI --}}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="kpi-icon" style="background:rgba(13,110,253,.12);color:#0d6efd"><i class="fas fa-map-marker-alt"></i></div>
+                <div>
+                    <div class="kpi-label">Total TPS</div>
+                    <div class="kpi-value">{{ number_format($totalTps ?? 0) }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="kpi-icon" style="background:rgba(25,135,84,.12);color:#198754"><i class="fas fa-users"></i></div>
+                <div>
+                    <div class="kpi-label">Total DPT</div>
+                    <div class="kpi-value">{{ number_format($totalDpt) }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="kpi-icon" style="background:rgba(253,126,20,.14);color:#fd7e14"><i class="fas fa-vote-yea"></i></div>
+                <div>
+                    <div class="kpi-label">Pengguna Hak Pilih</div>
+                    <div class="kpi-value">{{ number_format($totalPengguna) }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="kpi-icon" style="background:rgba(220,53,69,.12);color:#dc3545"><i class="fas fa-exclamation-triangle"></i></div>
+                <div>
+                    <div class="kpi-label">Wilayah Prioritas (TPS)</div>
+                    <div class="kpi-value">{{ number_format($jumlahWilayahPrioritas ?? 0) }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Tertinggi & terendah --}}
+<div class="row g-3 mb-4">
+    @foreach ([
+        ['Kecamatan dengan Partisipasi Tertinggi', $kecamatanTertinggi ?? null, '#198754', 'fa-arrow-up'],
+        ['Kecamatan dengan Partisipasi Terendah',  $kecamatanTerendah ?? null,  '#dc3545', 'fa-arrow-down'],
+    ] as [$judul, $data, $warna, $ikon])
+        <div class="col-md-6">
+            <div class="card panel h-100">
+                <div class="card-body">
+                    <div class="text-muted small mb-2">
+                        <i class="fas {{ $ikon }} me-1" style="color:{{ $warna }}"></i> {{ $judul }}
+                    </div>
+                    @if($data)
+                        <div class="insight-name" style="color:{{ $warna }}">{{ $data->kecamatan }}</div>
+                        <div class="insight-pct">{{ number_format($pct($data->tingkat_partisipasi), 2) }}%</div>
+                        <div class="kec-bar my-2">
+                            <div style="width: {{ min(100, max(0, $pct($data->tingkat_partisipasi))) }}%; background: {{ $warna }}"></div>
+                        </div>
+                        <div class="small text-muted">
+                            {{ number_format($data->total_pengguna) }} dari {{ number_format($data->total_dpt) }} DPT
+                        </div>
+                    @else
+                        <span class="text-muted">Data belum tersedia.</span>
+                    @endif
+                </div>
+            </div>
+        </div>
+    @endforeach
+</div>
+
+{{-- Grafik --}}
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card panel h-100">
+            <div class="card-body">
+                <div class="panel-title">Tingkat Partisipasi per Kecamatan</div>
+                <div class="panel-sub">Perbandingan persentase pengguna hak pilih terhadap DPT pada setiap kecamatan.</div>
+                <div class="chart-box"><canvas id="kecamatanChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card panel h-100">
+            <div class="card-body">
+                <div class="panel-title">Distribusi Hasil Klaster</div>
+                <div class="panel-sub">Jumlah TPS berdasarkan kategori partisipasi.</div>
+                <div class="chart-box"><canvas id="clusterChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Karakteristik klaster --}}
+<div class="card panel mb-4">
+    <div class="card-body">
+        <div class="panel-title">Karakteristik Klaster</div>
+        <div class="panel-sub">Ringkasan hasil pengelompokan berdasarkan tingkat partisipasi pemilih.</div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Klaster</th>
+                        <th>Kategori</th>
+                        <th class="text-end">Jumlah TPS</th>
+                        <th class="text-end">Proporsi</th>
+                        <th class="text-end">Rata-rata Partisipasi</th>
+                        <th class="text-end">Rentang Partisipasi</th>
+                        <th class="text-end">Rata-rata DPT</th>
+                        <th class="text-end">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @forelse($clusters as $cluster)
+                    <tr>
+                        <td><span class="badge bg-secondary">C{{ $cluster->cluster_no }}</span></td>
+                        <td><span class="badge {{ $badgeFor($cluster->label) }}">{{ $cluster->label }}</span></td>
+                        <td class="text-end">{{ number_format($cluster->jumlah_tps ?? 0) }}</td>
+                        <td class="text-end">{{ number_format(($cluster->persen_thd_total ?? 0) * 100, 1) }}%</td>
+                        <td class="text-end fw-semibold">{{ number_format(($cluster->rata_partisipasi ?? 0) * 100, 2) }}%</td>
+                        <td class="text-end">
+                            {{ number_format(($cluster->min_partisipasi ?? 0) * 100, 2) }}% –
+                            {{ number_format(($cluster->max_partisipasi ?? 0) * 100, 2) }}%
+                        </td>
+                        <td class="text-end">{{ number_format($cluster->rata_dpt ?? 0, 0) }}</td>
+                        <td class="text-end">
+                            <a href="{{ route('clusters.show', $cluster->cluster_no) }}" class="btn btn-sm btn-outline-primary">
+                                Lihat Wilayah
+                            </a>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="8" class="empty-state">Hasil clustering belum tersedia.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{{-- Wilayah prioritas --}}
+<div class="card panel mb-4">
+    <div class="card-body">
+        <div class="panel-title">Wilayah Prioritas Partisipasi</div>
+        <div class="panel-sub">
+            @if($klasterSiap)
+                Lima TPS dengan tingkat partisipasi terendah pada klaster {{ $clusterRendah->label }}.
+            @else
+                Lima TPS dengan tingkat partisipasi terendah secara keseluruhan.
+            @endif
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Wilayah</th>
+                        <th>TPS</th>
+                        <th class="text-end">DPT</th>
+                        <th class="text-end">Pengguna Hak Pilih</th>
+                        <th class="text-end">Partisipasi</th>
+                        <th>Kategori</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @forelse($wilayahPrioritas as $wilayah)
+                    @php
+                        $klaster = $clusters->firstWhere('cluster_no', $wilayah->cluster);
+                    @endphp
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ $wilayah->kelurahan }}</div>
+                            <div class="small text-muted">{{ $wilayah->kecamatan }}</div>
+                        </td>
+                        <td>TPS {{ $wilayah->no_tps }}</td>
+                        <td class="text-end">{{ number_format($wilayah->dpt_jml) }}</td>
+                        <td class="text-end">{{ number_format($wilayah->total_pengguna) }}</td>
+                        <td class="text-end fw-bold text-danger">{{ number_format($pct($wilayah->partisipasi), 2) }}%</td>
+                        <td>
+                            @if($klaster)
+                                <span class="badge {{ $badgeFor($klaster->label) }}">{{ $klaster->label }}</span>
+                            @else
+                                <span class="badge bg-secondary">Belum diklaster</span>
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="empty-state">Data wilayah prioritas belum tersedia.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{{-- Rekap kecamatan --}}
+<div class="card panel">
+    <div class="card-body">
+        <div class="panel-title">Rekap Partisipasi per Kecamatan</div>
+        <div class="panel-sub">Tingkat partisipasi = total pengguna hak pilih / total DPT.</div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Kecamatan</th>
+                        <th class="text-end">Jumlah TPS</th>
+                        <th class="text-end">Total DPT</th>
+                        <th class="text-end">Pengguna Hak Pilih</th>
+                        <th class="text-end">Tidak Menggunakan</th>
+                        <th class="text-end">Tingkat Partisipasi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @forelse($perKecamatan as $kecamatan)
+                    @php
+                        $p = $pct($kecamatan->tingkat_partisipasi);
+                        [$color, $soft] = $tone($p);
+                    @endphp
+                    <tr>
+                        <td class="fw-semibold">{{ $kecamatan->kecamatan }}</td>
+                        <td class="text-end">{{ number_format($kecamatan->jumlah_tps) }}</td>
+                        <td class="text-end">{{ number_format($kecamatan->total_dpt) }}</td>
+                        <td class="text-end">{{ number_format($kecamatan->total_pengguna) }}</td>
+                        <td class="text-end">{{ number_format(max(0, $kecamatan->total_dpt - $kecamatan->total_pengguna)) }}</td>
+                        <td class="text-end">
+                            <span class="badge" style="background:{{ $soft }};color:{{ $color }}">{{ number_format($p, 2) }}%</span>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="empty-state">Data kecamatan belum tersedia.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@push('scripts')
+<script>
+(function () {
+    const kecLabels     = @json($chartLabels ?? $perKecamatan->pluck('kecamatan')->values());
+    const kecValues     = @json($chartValues ?? []);
+    const clusterLabels = @json($clusterLabels ?? $clusters->pluck('label')->values());
+    const clusterCounts = @json($clusterCounts ?? $clusters->pluck('jumlah_tps')->values());
+
+    function levelColor(v) {
+        return v >= 70 ? '#198754' : (v >= 50 ? '#ffc107' : '#dc3545');
+    }
+
+    function clusterColor(label) {
+        const v = String(label).toLowerCase();
+        if (v.includes('tinggi')) return '#198754';
+        if (v.includes('sedang')) return '#ffc107';
+        if (v.includes('rendah')) return '#dc3545';
+        return '#0d6efd';
+    }
+
+    function drawCharts() {
+        const kecCanvas = document.getElementById('kecamatanChart');
+        if (kecCanvas && kecLabels.length) {
+            new Chart(kecCanvas, {
+                type: 'bar',
+                data: {
+                    labels: kecLabels,
+                    datasets: [{
+                        label: 'Tingkat Partisipasi (%)',
+                        data: kecValues,
+                        backgroundColor: kecValues.map(levelColor),
+                        borderRadius: 6,
+                        maxBarThickness: 55
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: '#f0f2f5' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => Number(ctx.raw).toFixed(2) + '%' } }
+                    }
+                }
+            });
+        }
+
+        const clusterCanvas = document.getElementById('clusterChart');
+        if (clusterCanvas && clusterLabels.length) {
+            new Chart(clusterCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: clusterLabels,
+                    datasets: [{
+                        data: clusterCounts,
+                        backgroundColor: clusterLabels.map(clusterColor),
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '65%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } }
+                    }
+                }
+            });
+        }
+    }
+
+    // Pakai Chart.js dari layout jika sudah ada, kalau belum muat dari CDN
+    function start() {
+        if (typeof Chart !== 'undefined') {
+            drawCharts();
+            return;
+        }
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+        s.onload = drawCharts;
+        s.onerror = function () { console.error('Chart.js gagal dimuat.'); };
+        document.head.appendChild(s);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start);
+    } else {
+        start();
+    }
+})();
+</script>
+@endpush
+
+@endsection
